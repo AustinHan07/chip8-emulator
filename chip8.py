@@ -4,6 +4,7 @@ CHIP-8 Emulator
 A complete implementation of the CHIP-8 virtual machine in Python.
 """
 
+import pygame
 import sys
 import os
 import time
@@ -273,3 +274,120 @@ class Chip8:
             instruction = self.fetch_instruction()
             self.execute_instruction(instruction)
             self.update_timers()
+
+
+class Chip8Display:
+    """CHIP-8 Display using Pygame"""
+    
+    def __init__(self, scale: int = 10):
+        pygame.init()
+        self.scale = scale
+        self.width = 64 * scale
+        self.height = 32 * scale
+        self.screen = pygame.display.set_mode((self.width, self.height))
+        pygame.display.set_caption("CHIP-8 Emulator")
+        self.clock = pygame.time.Clock()
+        
+        # Colors
+        self.BLACK = (0, 0, 0)
+        self.WHITE = (255, 255, 255)
+    
+    def draw(self, display: List[List[int]]):
+        """Draw CHIP-8 display to pygame screen"""
+        self.screen.fill(self.BLACK)
+        
+        for y in range(32):
+            for x in range(64):
+                if display[y][x] == 1:
+                    rect = pygame.Rect(x * self.scale, y * self.scale, self.scale, self.scale)
+                    pygame.draw.rect(self.screen, self.WHITE, rect)
+        
+        pygame.display.flip()
+    
+    def handle_events(self, chip8: Chip8) -> bool:
+        """Handle pygame events and update CHIP-8 input"""
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                return False
+            
+            elif event.type == pygame.KEYDOWN:
+                key = self.get_chip8_key(event.key)
+                if key is not None:
+                    chip8.keys[key] = 1
+            
+            elif event.type == pygame.KEYUP:
+                key = self.get_chip8_key(event.key)
+                if key is not None:
+                    chip8.keys[key] = 0
+        
+        return True
+    
+    def get_chip8_key(self, pygame_key) -> Optional[int]:
+        """Convert pygame key to CHIP-8 keypad"""
+        key_map = {
+            pygame.K_1: 0x1, pygame.K_2: 0x2, pygame.K_3: 0x3, pygame.K_4: 0xC,
+            pygame.K_q: 0x4, pygame.K_w: 0x5, pygame.K_e: 0x6, pygame.K_r: 0xD,
+            pygame.K_a: 0x7, pygame.K_s: 0x8, pygame.K_d: 0x9, pygame.K_f: 0xE,
+            pygame.K_z: 0xA, pygame.K_x: 0x0, pygame.K_c: 0xB, pygame.K_v: 0xF
+        }
+        return key_map.get(pygame_key)
+    
+    def cleanup(self):
+        """Clean up pygame resources"""
+        pygame.quit()
+
+
+def main():
+    """Main emulator loop"""
+    if len(sys.argv) != 2:
+        print("Usage: python chip8.py <rom_file>")
+        sys.exit(1)
+    
+    rom_file = sys.argv[1]
+    
+    # Initialize emulator
+    chip8 = Chip8()
+    display = Chip8Display(scale=15)  # 15x scale for better visibility
+    
+    # Load ROM
+    if not chip8.load_rom(rom_file):
+        sys.exit(1)
+    
+    # Main emulation loop
+    running = True
+    clock = pygame.time.Clock()
+    
+    print("CHIP-8 Emulator Started!")
+    print("Controls:")
+    print("1 2 3 C")
+    print("Q W E R")
+    print("A S D F")
+    print("Z X C V")
+    print("\nPress ESC to quit")
+    
+    while running:
+        # Handle events
+        running = display.handle_events(chip8)
+        
+        # Check for ESC key
+        if pygame.key.get_pressed()[pygame.K_ESCAPE]:
+            running = False
+        
+        # Execute multiple cycles per frame for proper timing
+        for _ in range(10):  # Adjust this number for different speeds
+            chip8.cycle()
+        
+        # Draw display if needed
+        if chip8.draw_flag:
+            display.draw(chip8.display)
+            chip8.draw_flag = False
+        
+        # Control frame rate
+        clock.tick(60)  # 60 FPS
+    
+    display.cleanup()
+    print("Emulator stopped.")
+
+
+if __name__ == "__main__":
+    main()
