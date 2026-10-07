@@ -97,3 +97,179 @@ class Chip8:
         instruction = (self.memory[self.PC] << 8) | self.memory[self.PC + 1]
         self.PC += 2
         return instruction
+    
+    def execute_instruction(self, instruction: int):
+        """Execute CHIP-8 instruction"""
+        # Extract instruction components
+        opcode = (instruction & 0xF000) >> 12
+        X = (instruction & 0x0F00) >> 8
+        Y = (instruction & 0x00F0) >> 4
+        N = instruction & 0x000F
+        NN = instruction & 0x00FF
+        NNN = instruction & 0x0FFF
+        
+        # Execute instruction based on opcode
+        if opcode == 0x0:
+            if instruction == 0x00E0:  # CLS
+                self.display = [[0 for _ in range(64)] for _ in range(32)]
+                self.draw_flag = True
+            elif instruction == 0x00EE:  # RET
+                self.SP -= 1
+                self.PC = self.stack[self.SP]
+            elif instruction == 0x00FF:  # Super CHIP-8: Enable high-res mode
+                # Skip this instruction - not implemented
+                pass
+            else:
+                print(f"Unknown instruction: {instruction:04X}")
+        
+        elif opcode == 0x1:  # JP addr
+            self.PC = NNN
+        
+        elif opcode == 0x2:  # CALL addr
+            self.stack[self.SP] = self.PC
+            self.SP += 1
+            self.PC = NNN
+        
+        elif opcode == 0x3:  # SE Vx, byte
+            if self.V[X] == NN:
+                self.PC += 2
+        
+        elif opcode == 0x4:  # SNE Vx, byte
+            if self.V[X] != NN:
+                self.PC += 2
+        
+        elif opcode == 0x5:  # SE Vx, Vy
+            if self.V[X] == self.V[Y]:
+                self.PC += 2
+        
+        elif opcode == 0x6:  # LD Vx, byte
+            self.V[X] = NN
+        
+        elif opcode == 0x7:  # ADD Vx, byte
+            self.V[X] = (self.V[X] + NN) & 0xFF
+        
+        elif opcode == 0x8:
+            if N == 0x0:  # LD Vx, Vy
+                self.V[X] = self.V[Y]
+            elif N == 0x1:  # OR Vx, Vy
+                self.V[X] |= self.V[Y]
+            elif N == 0x2:  # AND Vx, Vy
+                self.V[X] &= self.V[Y]
+            elif N == 0x3:  # XOR Vx, Vy
+                self.V[X] ^= self.V[Y]
+            elif N == 0x4:  # ADD Vx, Vy
+                result = self.V[X] + self.V[Y]
+                self.V[0xF] = 1 if result > 255 else 0
+                self.V[X] = result & 0xFF
+            elif N == 0x5:  # SUB Vx, Vy
+                self.V[0xF] = 1 if self.V[X] >= self.V[Y] else 0
+                self.V[X] = (self.V[X] - self.V[Y]) & 0xFF
+            elif N == 0x6:  # SHR Vx
+                self.V[0xF] = self.V[X] & 0x1
+                self.V[X] >>= 1
+            elif N == 0x7:  # SUBN Vx, Vy
+                self.V[0xF] = 1 if self.V[Y] >= self.V[X] else 0
+                self.V[X] = (self.V[Y] - self.V[X]) & 0xFF
+            elif N == 0xE:  # SHL Vx
+                self.V[0xF] = (self.V[X] & 0x80) >> 7
+                self.V[X] = (self.V[X] << 1) & 0xFF
+        
+        elif opcode == 0x9:  # SNE Vx, Vy
+            if self.V[X] != self.V[Y]:
+                self.PC += 2
+        
+        elif opcode == 0xA:  # LD I, addr
+            self.I = NNN
+        
+        elif opcode == 0xB:  # JP V0, addr
+            self.PC = NNN + self.V[0]
+        
+        elif opcode == 0xC:  # RND Vx, byte
+            self.V[X] = random.randint(0, 255) & NN
+        
+        elif opcode == 0xD:  # DRW Vx, Vy, nibble
+            self.draw_sprite(self.V[X], self.V[Y], N)
+        
+        elif opcode == 0xE:
+            if NN == 0x9E:  # SKP Vx
+                if self.keys[self.V[X]]:
+                    self.PC += 2
+            elif NN == 0xA1:  # SKNP Vx
+                if not self.keys[self.V[X]]:
+                    self.PC += 2
+        
+        elif opcode == 0xF:
+            if NN == 0x07:  # LD Vx, DT
+                self.V[X] = self.delay_timer
+            elif NN == 0x0A:  # LD Vx, K
+                self.wait_for_key(X)
+            elif NN == 0x15:  # LD DT, Vx
+                self.delay_timer = self.V[X]
+            elif NN == 0x18:  # LD ST, Vx
+                self.sound_timer = self.V[X]
+            elif NN == 0x1E:  # ADD I, Vx
+                self.I = (self.I + self.V[X]) & 0xFFFF
+            elif NN == 0x29:  # LD F, Vx
+                self.I = self.V[X] * 5  # Font sprites are 5 bytes each
+            elif NN == 0x33:  # LD B, Vx
+                self.memory[self.I] = self.V[X] // 100
+                self.memory[self.I + 1] = (self.V[X] % 100) // 10
+                self.memory[self.I + 2] = self.V[X] % 10
+            elif NN == 0x55:  # LD [I], Vx
+                for i in range(X + 1):
+                    self.memory[self.I + i] = self.V[i]
+            elif NN == 0x65:  # LD Vx, [I]
+                for i in range(X + 1):
+                    self.V[i] = self.memory[self.I + i]
+            elif NN == 0x75:  # Super CHIP-8: LD [I], Vx (save registers)
+                for i in range(X + 1):
+                    self.memory[self.I + i] = self.V[i]
+                self.I = (self.I + X + 1) & 0xFFFF
+            elif NN == 0x85:  # Super CHIP-8: LD Vx, [I] (load registers)
+                for i in range(X + 1):
+                    self.V[i] = self.memory[self.I + i]
+                self.I = (self.I + X + 1) & 0xFFFF
+            else:
+                print(f"Unknown instruction: {instruction:04X}")
+        
+        else:
+            print(f"Unknown instruction: {instruction:04X}")
+    
+    def draw_sprite(self, x: int, y: int, height: int):
+        """Draw sprite at position (x, y) with given height"""
+        self.V[0xF] = 0  # Reset collision flag
+        
+        for row in range(height):
+            sprite_byte = self.memory[self.I + row]
+            for col in range(8):
+                pixel = (sprite_byte >> (7 - col)) & 0x1
+                if pixel:
+                    screen_x = (x + col) % 64
+                    screen_y = (y + row) % 32
+                    
+                    if self.display[screen_y][screen_x] == 1:
+                        self.V[0xF] = 1  # Collision detected
+                    
+                    self.display[screen_y][screen_x] ^= 1
+        
+        self.draw_flag = True
+    
+    def wait_for_key(self, register: int):
+        """Wait for key press and store in register"""
+        # This is handled in the main loop
+        pass
+    
+    def update_timers(self):
+        """Update delay and sound timers"""
+        if self.delay_timer > 0:
+            self.delay_timer -= 1
+        
+        if self.sound_timer > 0:
+            self.sound_timer -= 1
+    
+    def cycle(self):
+        """Execute one CPU cycle"""
+        if self.running:
+            instruction = self.fetch_instruction()
+            self.execute_instruction(instruction)
+            self.update_timers()
